@@ -72,6 +72,18 @@ export default function ResourceMonitor({ metrics }: { metrics: ResourceMetrics 
               value={Math.min(metrics.system_memory_percent, 100)}
               sx={{ my: 0.5 }}
             />
+            <Typography variant="caption" color="text.secondary">
+              磁盘（模型存储{metrics.disk_path ? ` ${metrics.disk_path}` : ''}）{' '}
+              {metrics.disk_percent.toFixed(1)}% · 剩余{' '}
+              {formatBytes(metrics.disk_free_mb * 1024 * 1024)} /{' '}
+              {formatBytes(metrics.disk_total_mb * 1024 * 1024)}
+            </Typography>
+            <LinearProgress
+              variant="determinate"
+              color={metrics.disk_percent > 90 ? 'error' : 'primary'}
+              value={Math.min(metrics.disk_percent, 100)}
+              sx={{ my: 0.5 }}
+            />
           </Box>
         </Stack>
 

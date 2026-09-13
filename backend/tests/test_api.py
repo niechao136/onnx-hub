@@ -98,6 +98,15 @@ def test_system_metrics(client) -> None:
     assert payload["system_memory_total_mb"] > 0
     assert payload["max_running_models"] >= 1
 
+    # 磁盘信息（模型存储所在分区）
+    assert payload["disk_path"]
+    assert payload["disk_total_mb"] > 0
+    assert payload["disk_used_mb"] > 0
+    assert 0 <= payload["disk_percent"] <= 100
+    assert payload["disk_free_mb"] == pytest.approx(
+        payload["disk_total_mb"] - payload["disk_used_mb"], rel=0.05
+    )
+
 
 def test_api_key_lifecycle(client) -> None:
     created = client.post("/api/keys", json={"name": "pytest"})

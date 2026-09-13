@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -312,11 +313,31 @@ def model_logs(
 # =============================================================================
 # 资源监控
 # =============================================================================
+def _disk_usage() -> tuple[str, float, float, float, float]:
+    """返回模型存储所在磁盘的 (路径, 总MB, 已用MB, 可用MB, 使用百分比)。"""
+    candidates = [settings.model_dir, settings.data_dir, Path("/")]
+    for path in candidates:
+        try:
+            usage = psutil.disk_usage(str(path))
+        except (OSError, FileNotFoundError):
+            continue
+        to_mb = 1024 * 1024
+        return (
+            str(path),
+            round(usage.total / to_mb, 1),
+            round(usage.used / to_mb, 1),
+            round(usage.free / to_mb, 1),
+            usage.percent,
+        )
+    return (str(settings.model_dir), 0.0, 0.0, 0.0, 0.0)
+
+
 @mgmt_router.get("/system/metrics", response_model=ResourceMetrics, summary="资源监控")
 def system_metrics() -> ResourceMetrics:
     manager = get_process_manager()
     processes = [ProcessUsage(**item) for item in manager.resource_usage()]
     memory = psutil.virtual_memory()
+    disk_path, disk_total, disk_used, disk_free, disk_percent = _disk_usage()
     return ResourceMetrics(
         running_models=manager.running_count,
         max_running_models=settings.max_running_models,
@@ -326,6 +347,11 @@ def system_metrics() -> ResourceMetrics:
         system_memory_percent=memory.percent,
         system_memory_used_mb=round(memory.used / (1024 * 1024), 1),
         system_memory_total_mb=round(memory.total / (1024 * 1024), 1),
+        disk_path=disk_path,
+        disk_total_mb=disk_total,
+        disk_used_mb=disk_used,
+        disk_free_mb=disk_free,
+        disk_percent=disk_percent,
         processes=processes,
     )
 

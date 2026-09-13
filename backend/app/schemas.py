@@ -175,4 +175,10 @@ class ResourceMetrics(BaseModel):
     system_memory_percent: float
     system_memory_used_mb: float
     system_memory_total_mb: float
+    #: 模型存储所在磁盘的容量信息（模型动辄几百 MB，需要能直观看到剩余空间）
+    disk_path: str = ""
+    disk_total_mb: float = 0.0
+    disk_used_mb: float = 0.0
+    disk_free_mb: float = 0.0
+    disk_percent: float = 0.0
     processes: list[ProcessUsage] = Field(default_factory=list)

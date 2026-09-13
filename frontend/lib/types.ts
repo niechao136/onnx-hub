@@ -1,3 +1,6 @@
+/** 界面主题模式（选择会记入 localStorage） */
+export type ThemeMode = 'light' | 'dark';
+
 export type ModelType = 'asr-streaming' | 'asr-offline' | 'tts';
 
 export type ModelStatus = 'stopped' | 'starting' | 'running' | 'stopping' | 'restarting' | 'error';
@@ -114,6 +117,11 @@ export interface ResourceMetrics {
   system_memory_percent: number;
   system_memory_used_mb: number;
   system_memory_total_mb: number;
+  disk_path: string;
+  disk_total_mb: number;
+  disk_used_mb: number;
+  disk_free_mb: number;
+  disk_percent: number;
   processes: ProcessUsage[];
 }
 

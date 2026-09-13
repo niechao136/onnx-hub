@@ -2,15 +2,33 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { AppBar, Box, Button, Container, Toolbar, Typography } from '@mui/material';
+import {
+  AppBar,
+  Box,
+  Button,
+  Container,
+  IconButton,
+  Toolbar,
+  Tooltip,
+  Typography,
+} from '@mui/material';
+import Brightness4Icon from '@mui/icons-material/Brightness4';
+import Brightness7Icon from '@mui/icons-material/Brightness7';
 import GraphicEqIcon from '@mui/icons-material/GraphicEq';
+import type { ThemeMode } from '@/lib/types';
 
 const NAV_ITEMS = [
   { href: '/models', label: '模型管理' },
   { href: '/keys', label: 'API Key' },
 ];
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+interface Props {
+  children: React.ReactNode;
+  mode: ThemeMode;
+  onToggleMode: () => void;
+}
+
+export default function AppShell({ children, mode, onToggleMode }: Props) {
   const pathname = usePathname();
 
   return (
@@ -38,13 +56,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               );
             })}
           </Box>
-          <Button
-            size="small"
-            href="/docs"
-            target="_blank"
-            rel="noreferrer"
-            component="a"
-          >
+          <Tooltip title={mode === 'dark' ? '切换到浅色主题' : '切换到深色主题'}>
+            <IconButton
+              size="small"
+              color="inherit"
+              onClick={onToggleMode}
+              aria-label="切换主题"
+              sx={{ mr: 1 }}
+            >
+              {mode === 'dark' ? (
+                <Brightness7Icon fontSize="small" />
+              ) : (
+                <Brightness4Icon fontSize="small" />
+              )}
+            </IconButton>
+          </Tooltip>
+          <Button size="small" href="/docs" target="_blank" rel="noreferrer" component="a">
             API 文档
           </Button>
         </Toolbar>

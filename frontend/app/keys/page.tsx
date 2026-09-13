@@ -237,7 +237,8 @@ export default function KeysPage() {
             sx={{
               m: 0,
               p: 2,
-              bgcolor: 'grey.100',
+              bgcolor: 'action.hover',
+              color: 'text.primary',
               borderRadius: 1,
               overflowX: 'auto',
               fontSize: 13,
