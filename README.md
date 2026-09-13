@@ -246,7 +246,7 @@ curl -X POST http://127.0.0.1:10100/api/models/my-vits/start
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | `GET` | `/api/system/health` | 探活（无鉴权） |
-| `GET` | `/api/system/metrics` | 系统 CPU/内存 + 每个运行进程的 CPU/内存/运行时长/重启次数 |
+| `GET` | `/api/system/metrics` | 系统 CPU/内存/磁盘（含模型存储剩余空间）+ 每个运行进程的 CPU/内存/运行时长/重启次数 |
 | `POST` | `/api/keys` | 生成 Key（**明文只返回一次**） |
 | `GET` | `/api/keys` | Key 列表（只返回前缀） |
 | `DELETE` | `/api/keys/{key_id}` | 删除 Key |
