@@ -42,19 +42,25 @@ onnx-hub/
 │   │   ├── runners/tts_server.py# TTS 的 HTTP 薄封装（基于官方 OfflineTts API）
 │   │   └── config/models.yaml   # 预置模型目录（新增模型只改这个文件）
 │   ├── tests/                   # pytest（registry / downloader / process_manager / api）
-│   ├── models/                  # 下载的模型文件（运行期生成，不入库）
-│   └── requirements.txt
+│   └── models/                  # 下载的模型文件（运行期生成，不入库）
 ├── frontend/
 │   ├── app/                     # App Router：/models、/models/[id]、/keys
 │   ├── components/              # ModelCard / DownloadProgress / ResourceMonitor / AppShell …
 │   ├── lib/                     # api.ts（统一请求封装）、types.ts、format.ts
 │   └── package.json
 ├── deploy/nginx.conf            # 可选统一入口（含 WS 升级）
+├── pyproject.toml               # 后端依赖与工具配置（唯一依赖声明处）
+├── uv.lock                      # 依赖锁定文件（由 uv 维护，应提交）
 ├── Dockerfile.backend
 ├── Dockerfile.frontend
 ├── docker-compose.yml
 └── .env.example
 ```
+
+> **依赖管理**：后端 Python 依赖**只在根 `pyproject.toml` 声明**（`[project].dependencies`
+> 为运行时依赖、`[dependency-groups].dev` 为测试依赖），由 uv 锁定到 `uv.lock`；
+> 前端依赖仍在 `frontend/package.json`。
+> 增删依赖请用 `uv add <pkg>` / `uv add --dev <pkg>`，不要手工编辑锁文件。
 
 ---
 
@@ -86,16 +92,18 @@ docker compose --profile proxy up -d
 
 ### 方式 B：本地开发
 
-后端（Python ≥ 3.11）：
+后端（Python ≥ 3.11，需要 [uv](https://docs.astral.sh/uv/)）：
 
 ```bash
-cd backend
-uv venv .venv && uv pip install --python .venv/Scripts/python.exe -r requirements.txt
-# 或：python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
+# 在仓库根目录安装依赖（读取 pyproject.toml，创建根 .venv 并生成/校验 uv.lock）
+uv sync
 
-# 启动（在 backend 目录下）
-.venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-# Linux/macOS 用 .venv/bin/python
+# 启动服务（uvicorn 需要以 backend 为工作目录，才能找到 app 包）
+cd backend
+uv run --project .. uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# 或者激活虚拟环境后启动（Windows / Linux 分别对应 .venv\Scripts 与 .venv/bin）
+#   ..\.venv\Scripts\Activate.ps1  ;  python -m uvicorn app.main:app --port 8000 --reload
 ```
 
 前端（Node ≥ 20）：
@@ -116,7 +124,9 @@ npm run dev                    # http://localhost:3000
 - **TTS**：官方未提供 TTS server 可执行文件，因此本项目附带 `app/runners/tts_server.py`
   （仅做 HTTP 协议适配，推理调用官方 `sherpa_onnx.OfflineTts`）：
   ```bash
-  pip install sherpa-onnx
+  # 可选依赖，不写进 pyproject 以免所有人都被迫下载大 wheel；
+  # 如需固化到依赖里，用 uv add sherpa-onnx（会同步更新 uv.lock）
+  uv pip install sherpa-onnx
   ```
 
 > 未安装运行时不影响平台本身运行：下载、列表、Key 管理仍可用，启动模型时会返回明确的
@@ -297,8 +307,7 @@ curl -N http://127.0.0.1:8000/api/models/vits-zh-aishell3/download/progress/stre
 
 ```bash
 # 后端（41 个用例，覆盖仓库解析、下载进度/重试/多镜像、端口池、启动停止、自动重启、并发限制、API/WS）
-cd f:/ai/onnx-hub
-backend/.venv/Scripts/python.exe -m pytest -q
+uv run pytest -q
 
 # 前端类型检查 + 构建
 cd frontend

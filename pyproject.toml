@@ -4,14 +4,39 @@ version = "0.1.0"
 description = "Sherpa Model Hub —— 基于 sherpa-onnx 的语音模型管理平台（backend + frontend monorepo）"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "sqlmodel>=0.0.22",
+    "httpx>=0.27.2",
+    "psutil>=6.1.0",
+    "PyYAML>=6.0.2",
+    "websockets>=13.1",
+    "pydantic>=2.9.2",
+    "pydantic-settings>=2.6.1",
+]
+
+# 开发/测试依赖（uv sync 默认安装 dev 组）
+[dependency-groups]
+dev = [
+    "pytest>=8.3.3",
+    "pytest-asyncio>=0.24.0",
+]
 
 # ---------------------------------------------------------------------------
 # 本项目为 monorepo：
-#   backend/   后端（FastAPI，依赖见 backend/requirements.txt）
+#   backend/   后端（FastAPI，代码在 backend/app，不是可分发包，依赖统一由本文件管理）
 #   frontend/  前端（Next.js + MUI，依赖见 frontend/package.json）
-# 根 pyproject.toml 只保留开发/测试工具配置。
+#
+# 常用命令（均在仓库根目录执行）：
+#   uv sync                                  创建 .venv 并安装全部依赖
+#   uv run uvicorn app.main:app --port 8000  （需先 cd backend，见 README）
+#   uv run pytest                            运行后端测试
+#   uv add <pkg> / uv add --dev <pkg>        增删依赖（自动更新 uv.lock）
 # ---------------------------------------------------------------------------
+[tool.uv]
+# backend/app 不是可分发包，只安装依赖、不安装项目自身
+package = false
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
@@ -22,7 +47,7 @@ filterwarnings = ["ignore::DeprecationWarning"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["frontend", ".venv", "backend/.venv", "backend/models"]
+extend-exclude = ["frontend", ".venv", "backend/models"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "N"]
