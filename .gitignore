@@ -19,6 +19,11 @@ frontend/out/
 frontend/next-env.d.ts
 frontend/.env.local
 
+# IDE
+.vscode/
+.idea/
+.codebuddy/
+
 # ---------- 其他 ----------
 .DS_Store
 *.log

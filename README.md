@@ -83,7 +83,7 @@ docker compose --profile proxy up -d
 
 | 服务 | 地址 | 说明 |
 |---|---|---|
-| 管理界面 | http://localhost:3000 | 或经 Nginx：http://localhost:8080 |
+| 管理界面 | http://localhost:3000 | 或经 Nginx：http://localhost:10100 |
 | 后端 API 文档 | http://localhost:8000/docs | Swagger UI |
 | WS 网关 | ws://localhost:8000/ws/asr/{model_id} | 需直连后端端口或经 Nginx /ws |
 
