@@ -1,0 +1,113 @@
+# =============================================================================
+# Sherpa Model Hub —— 预置模型目录
+# -----------------------------------------------------------------------------
+# 每个模型条目字段说明：
+#   id            唯一标识，同时作为 URL 中的 {model_id}，建议使用 kebab-case
+#   name          界面上展示的名称
+#   type          asr-streaming | asr-offline | tts
+#   language      语言标签，仅用于展示
+#   description   简介
+#   memory_mb     预估内存占用（MB），用于前端展示与资源提示
+#   tags          标签，用于前端过滤
+#   source.repo   上游仓库名（org/name），会被镜像模板里的 {repo} 替换
+#   source.mirrors 下载地址模板列表，按顺序尝试（用 {repo} / {file} 占位）。
+#                 预置条目的文件清单已对 HuggingFace 上游仓库核对过；ModelScope
+#                 作为备用镜像，若国内网络更快可把对应模板调到列表首位。
+#   files         需要下载的文件清单，key 会作为启动参数占位符 {key}
+#   start.command 可执行文件或命令（可用 {python} 表示当前 Python 解释器）
+#   start.args    参数模板，支持占位符：{port} {model_dir} {data_dir}
+#                 {backend_dir} {python} 以及 files 里定义的 {key}
+#   start.cwd     进程工作目录：model_dir | backend_dir
+#   start.health  健康检查方式：tcp 探活或 http 探活
+#
+# 新增模型时只需照抄一条并替换文件清单/启动参数即可，无需改动代码。
+# =============================================================================
+version: 1
+
+models:
+  # ---------------------------------------------------------------- 流式 ASR
+  - id: zipformer-streaming-bilingual-zh-en
+    name: Zipformer 流式中英双语
+    type: asr-streaming
+    language: zh-en
+    description: 中英双语流式识别，适合实时字幕、语音助手等低延迟场景。
+    memory_mb: 1000
+    tags: [streaming, zh, en]
+    source:
+      repo: csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20
+      mirrors:
+        - https://huggingface.co/{repo}/resolve/main/{file}
+        - https://modelscope.cn/models/{repo}/resolve/master/{file}
+    files:
+      - { key: encoder, path: encoder-epoch-99-avg-1.onnx }
+      - { key: decoder, path: decoder-epoch-99-avg-1.onnx }
+      - { key: joiner, path: joiner-epoch-99-avg-1.onnx }
+      - { key: tokens, path: tokens.txt }
+    start:
+      command: sherpa-onnx-online-websocket-server
+      args:
+        - --port={port}
+        - --tokens={tokens}
+        - --encoder={encoder}
+        - --decoder={decoder}
+        - --joiner={joiner}
+        - --num-threads=2
+        - --decoding-method=greedy_search
+      cwd: model_dir
+      health: { kind: tcp }
+
+  # ---------------------------------------------------------------- 离线 ASR
+  - id: paraformer-zh-offline
+    name: Paraformer 中文离线识别
+    type: asr-offline
+    language: zh
+    description: 阿里 Paraformer 中文非流式识别，整段音频一次返回结果，准确率更高。
+    memory_mb: 900
+    tags: [offline, zh]
+    source:
+      repo: csukuangfj/sherpa-onnx-paraformer-zh-small-2024-03-09
+      mirrors:
+        - https://huggingface.co/{repo}/resolve/main/{file}
+        - https://modelscope.cn/models/{repo}/resolve/master/{file}
+    files:
+      - { key: model, path: model.int8.onnx }
+      - { key: tokens, path: tokens.txt }
+    start:
+      command: sherpa-onnx-offline-websocket-server
+      args:
+        - --port={port}
+        - --tokens={tokens}
+        - --paraformer={model}
+        - --num-threads=2
+      cwd: model_dir
+      health: { kind: tcp }
+
+  # ------------------------------------------------------------------- TTS
+  - id: vits-zh-aishell3
+    name: VITS 中文女声（AISHELL-3）
+    type: tts
+    language: zh
+    description: 中文 VITS 语音合成，支持通过 speaker_id 切换发音人。
+    memory_mb: 600
+    tags: [tts, zh]
+    source:
+      repo: csukuangfj/vits-zh-aishell3
+      mirrors:
+        - https://huggingface.co/{repo}/resolve/main/{file}
+        - https://modelscope.cn/models/{repo}/resolve/master/{file}
+    files:
+      - { key: model, path: vits-aishell3.onnx }
+      - { key: tokens, path: tokens.txt }
+      - { key: lexicon, path: lexicon.txt }
+    start:
+      command: "{python}"
+      args:
+        - -m
+        - app.runners.tts_server
+        - --port={port}
+        - --vits-model={model}
+        - --tokens={tokens}
+        - --lexicon={lexicon}
+        - --num-threads=2
+      cwd: backend_dir
+      health: { kind: http, path: /health }

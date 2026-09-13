@@ -1,0 +1,80 @@
+# syntax=docker/dockerfile:1
+# =============================================================================
+# Sherpa Model Hub —— 后端镜像
+#   内含：Python 运行环境 + sherpa-onnx 官方可执行文件（ASR server）
+#   构建上下文为仓库根目录
+#
+#   构建：
+#     docker build -f Dockerfile.backend -t sherpa-model-hub-backend .
+#   如构建机无法访问 GitHub，可关闭二进制下载（改为运行时挂载）：
+#     docker build -f Dockerfile.backend --build-arg INSTALL_SHERPA_ONNX=false -t ... .
+# =============================================================================
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HUB_MODEL_DIR=/data/models \
+    HUB_DATA_DIR=/hubdata
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        curl bzip2 libgomp1 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# -----------------------------------------------------------------------------
+# sherpa-onnx 官方预编译可执行文件（sherpa-onnx-online/offline-websocket-server）
+# 版本可在构建时覆盖：--build-arg SHERPA_ONNX_VERSION=1.10.46
+# -----------------------------------------------------------------------------
+ARG TARGETARCH=amd64
+ARG SHERPA_ONNX_VERSION=1.10.46
+ARG INSTALL_SHERPA_ONNX=true
+
+RUN set -eux; \
+    if [ "${INSTALL_SHERPA_ONNX}" != "true" ]; then \
+        echo ">> 跳过 sherpa-onnx 二进制安装（可在运行时挂载到 /opt/sherpa-onnx）"; \
+        mkdir -p /opt/sherpa-onnx; exit 0; \
+    fi; \
+    case "${TARGETARCH}" in \
+        arm64) arch=aarch64 ;; \
+        *)     arch=x64 ;; \
+    esac; \
+    version="${SHERPA_ONNX_VERSION}"; \
+    url="https://github.com/k2-fsa/sherpa-onnx/releases/download/v${version}/sherpa-onnx-v${version}-linux-${arch}-static.tar.bz2"; \
+    echo ">> 下载 ${url}"; \
+    mkdir -p /opt/sherpa-onnx; \
+    if curl -fL --retry 3 --connect-timeout 20 -o /tmp/sherpa.tar.bz2 "${url}"; then \
+        tar -xjf /tmp/sherpa.tar.bz2 -C /tmp; \
+        cp -a /tmp/sherpa-onnx-v${version}-linux-${arch}-static/bin/. /opt/sherpa-onnx/; \
+        rm -rf /tmp/sherpa.tar.bz2 "/tmp/sherpa-onnx-v${version}-linux-${arch}-static"; \
+        /opt/sherpa-onnx/sherpa-onnx-online-websocket-server --help >/dev/null 2>&1 || true; \
+        echo ">> sherpa-onnx 安装完成"; \
+    else \
+        echo ">> 警告：sherpa-onnx 二进制下载失败，ASR 模型将无法启动；"; \
+        echo ">>       可重新构建或在部署时把二进制挂载到 /opt/sherpa-onnx"; \
+    fi
+
+ENV PATH="/opt/sherpa-onnx:${PATH}"
+
+WORKDIR /app
+
+# -----------------------------------------------------------------------------
+# Python 依赖
+# -----------------------------------------------------------------------------
+COPY backend/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# TTS 走官方 Python API（sherpa-onnx 官方未提供 TTS 的 server 可执行文件）
+RUN pip install --no-cache-dir sherpa-onnx \
+    || echo ">> 警告：sherpa-onnx Python 包安装失败，TTS 功能不可用"
+
+COPY backend/app ./app
+
+# 模型文件与 SQLite/日志分别挂载，容器重建不丢数据
+VOLUME ["/data", "/hubdata"]
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8000/api/system/health || exit 1
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,7 +1,28 @@
 [project]
 name = "onnx-hub"
 version = "0.1.0"
-description = "Add your description here"
+description = "Sherpa Model Hub —— 基于 sherpa-onnx 的语音模型管理平台（backend + frontend monorepo）"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
+
+# ---------------------------------------------------------------------------
+# 本项目为 monorepo：
+#   backend/   后端（FastAPI，依赖见 backend/requirements.txt）
+#   frontend/  前端（Next.js + MUI，依赖见 frontend/package.json）
+# 根 pyproject.toml 只保留开发/测试工具配置。
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend"]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["frontend", ".venv", "backend/.venv", "backend/models"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "N"]

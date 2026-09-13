@@ -1,21 +1,26 @@
-# Python
+# ---------- Python ----------
 __pycache__/
 *.py[cod]
+*.egg-info/
 .venv/
-.env
+venv/
+.pytest_cache/
+.ruff_cache/
 
-# IDE
-.vscode/
-.idea/
-.codebuddy/
+# ---------- 运行时数据（模型文件、SQLite、日志不入库） ----------
+backend/models/
+backend/data/
+backend/.env
 
-# Node
+# ---------- Node / Next.js ----------
 node_modules/
-web/.next/
-web/out/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+frontend/.env.local
 
-# Docker 部署：PostgreSQL 目录挂载数据
-postgres_data/
-
-# OS
+# ---------- 其他 ----------
 .DS_Store
+*.log
+.env
+.env.local
