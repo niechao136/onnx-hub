@@ -103,7 +103,7 @@ export const api = {
   deleteKey: (keyId: number) => request<{ deleted: number }>(`/api/keys/${keyId}`, { method: 'DELETE' }),
 };
 
-/** WebSocket 网关地址：优先使用 NEXT_PUBLIC_WS_BASE，否则直连后端 8000 端口 */
+/** WebSocket 网关地址：优先使用 NEXT_PUBLIC_WS_BASE（构建期注入），否则默认同源 */
 export function websocketUrl(path: string): string {
   if (WS_BASE) {
     return `${WS_BASE.replace(/\/$/, '')}${path}`;
@@ -111,7 +111,8 @@ export function websocketUrl(path: string): string {
   if (typeof window === 'undefined') {
     return path;
   }
+  // 默认同源：反向代理（Nginx / 网关）会把 /ws 转发到后端，
+  // 因此入口端口变化时前端无需重新构建或额外配置
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.hostname;
-  return `${protocol}//${host}:8000${path}`;
+  return `${protocol}//${window.location.host}${path}`;
 }

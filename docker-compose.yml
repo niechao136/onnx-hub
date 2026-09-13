@@ -4,10 +4,13 @@
 #   docker compose up -d --build            启动 backend + frontend
 #   docker compose --profile proxy up -d    额外启动 Nginx 统一入口（推荐）
 #
-# 端口：
-#   backend  8000  对外网关（WS /ws/asr/{id}、POST /api/tts/{id} 必须直连此端口）
-#   frontend 3000  管理界面（/api 由 Next.js rewrites 反代到 backend）
-#   nginx    10100  统一入口（/ 前端、/api 与 /ws 反代后端，支持 WS 升级）
+# 端口（宿主机侧，默认值可在 .env 中覆盖）：
+#   NGINX_PORT    10100  统一入口（推荐）：/ 前端、/api 与 /ws 反代后端，支持 WebSocket 升级
+#   BACKEND_PORT  8000   后端直连（调试 / Swagger：/docs）
+#   FRONTEND_PORT 3000   前端直连（调试）
+#
+# 提示：默认端口在部分机器上可能已被占用（如 3000/8000），生产部署请显式在 .env 中指定，
+# 例如本项目服务器上的配置为 NGINX_PORT=10100、BACKEND_PORT=18000、FRONTEND_PORT=18001。
 # =============================================================================
 services:
   backend:
@@ -41,13 +44,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      args:
+        # NEXT_PUBLIC_* 会被内联进前端产物，必须构建期注入（运行时 environment 无效）。
+        # 留空 = 浏览器走同源 /ws，配合 nginx 入口时无需配置。
+        NEXT_PUBLIC_WS_BASE: "${NEXT_PUBLIC_WS_BASE:-}"
     image: sherpa-model-hub-frontend:latest
     restart: unless-stopped
     environment:
       # 服务端 rewrites 目标（容器内走服务名）
       BACKEND_URL: http://backend:8000
-      # 浏览器访问 WS 时使用的地址前缀；使用 nginx profile 时可留空
-      NEXT_PUBLIC_WS_BASE: "${NEXT_PUBLIC_WS_BASE:-}"
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:

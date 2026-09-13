@@ -85,7 +85,7 @@ docker compose --profile proxy up -d
 |---|---|---|
 | 管理界面 | http://localhost:3000 | 或经 Nginx：http://localhost:10100 |
 | 后端 API 文档 | http://localhost:8000/docs | Swagger UI |
-| WS 网关 | ws://localhost:8000/ws/asr/{model_id} | 需直连后端端口或经 Nginx /ws |
+| WS 网关 | ws://localhost:10100/ws/asr/{model_id} | 经 Nginx 统一入口（推荐），或直连后端 18000 |
 
 > 模型文件挂在 `models` 卷（容器内 `/data/models`），SQLite 与日志挂在 `hub-data` 卷（`/hubdata`），
 > 容器重建不会丢数据。
@@ -247,7 +247,7 @@ curl -X POST http://127.0.0.1:8000/api/models/zipformer-streaming-bilingual-zh-e
 curl -X POST http://127.0.0.1:8000/api/models/zipformer-streaming-bilingual-zh-en/start
 
 # 连接网关（音频帧格式遵循 sherpa-onnx 官方 websocket 协议：16-bit PCM、采样率 16000）
-wscat -c "ws://127.0.0.1:8000/ws/asr/zipformer-streaming-bilingual-zh-en?api_key=sk-hub-xxxxx..."
+wscat -c "ws://127.0.0.1:10100/ws/asr/zipformer-streaming-bilingual-zh-en?api_key=sk-hub-xxxxx..."
 ```
 
 管理界面「模型详情 → 调用方式 → 连接测试」也提供了连通性自检（验证网关转发链路是否打通）。
@@ -329,7 +329,7 @@ npm run typecheck && npm run build
 | 启动被拒 `同时运行的模型数量已达上限` | 调大 `HUB_MAX_RUNNING_MODELS` 或先停止其他模型（小内存服务器建议保持 1-2） |
 | 模型状态变成「异常」 | 连续健康检查失败或进程崩溃，已按上限自动重启；查看日志与 `last_error` |
 | 网关 401 | Key 无效或 `HUB_REQUIRE_API_KEY=true` 但请求未携带 Key |
-| WS 连接不上 | 浏览器需直连后端 8000 端口；或配置 `NEXT_PUBLIC_WS_BASE`、使用 Nginx（`/ws` 已带 Upgrade 头） |
+| WS 连接不上 | 前端默认走同源 `ws(s)://<当前域名>/ws/...`，因此需经 Nginx 入口访问（`/ws` 已带 Upgrade 头）；若浏览器无法同源访问，再用构建参数 `NEXT_PUBLIC_WS_BASE` 指定绝对地址并重新构建前端 |
 | 前端页面无法访问后端 | 检查 `BACKEND_URL`（容器内应为 `http://backend:8000`），或改用 `/docs` 直接验证后端 |
 
 ---
