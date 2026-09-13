@@ -13,8 +13,10 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ConfirmDialog, { type ConfirmState } from '@/components/ConfirmDialog';
+import CustomModelDialog from '@/components/CustomModelDialog';
 import ModelCard from '@/components/ModelCard';
 import ResourceMonitor from '@/components/ResourceMonitor';
 import { api } from '@/lib/api';
@@ -24,7 +26,7 @@ import { MODEL_TYPE_LABEL } from '@/lib/types';
 const TYPE_ORDER: ModelType[] = ['asr-streaming', 'asr-offline', 'tts'];
 const POLL_INTERVAL_MS = 5000;
 
-type Filter = 'all' | ModelType;
+type Filter = 'all' | ModelType | 'custom';
 
 export default function ModelsPage() {
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -37,6 +39,8 @@ export default function ModelsPage() {
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [keyword, setKeyword] = useState('');
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<ModelInfo | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -169,6 +173,9 @@ export default function ModelsPage() {
         setDownloading((prev) => [...prev, target.id]);
         await api.startDownload(target.id, true);
         setNotice(`已开始重新下载「${target.name}」`);
+      } else if (confirm.action === 'delete-model' && target) {
+        await api.deleteCustomModel(target.id, true);
+        setNotice(`已删除自定义模型「${target.name}」`);
       }
       setConfirm(null);
     } catch (err) {
@@ -183,7 +190,11 @@ export default function ModelsPage() {
   const filtered = useMemo(() => {
     const term = keyword.trim().toLowerCase();
     return models.filter((model) => {
-      if (filter !== 'all' && model.type !== filter) return false;
+      if (filter === 'custom') {
+        if (model.origin !== 'custom') return false;
+      } else if (filter !== 'all' && model.type !== filter) {
+        return false;
+      }
       if (!term) return true;
       return (
         model.name.toLowerCase().includes(term) ||
@@ -214,9 +225,21 @@ export default function ModelsPage() {
             选择、下载并启动 ONNX 语音模型，启动后可通过统一网关地址对外提供服务
           </Typography>
         </Box>
-        <Button startIcon={<RefreshIcon />} onClick={() => void refresh()} disabled={loading}>
-          刷新
-        </Button>
+        <Stack direction="row" spacing={1}>
+          <Button startIcon={<RefreshIcon />} onClick={() => void refresh()} disabled={loading}>
+            刷新
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => {
+              setEditing(null);
+              setDialogOpen(true);
+            }}
+          >
+            新增模型
+          </Button>
+        </Stack>
       </Stack>
 
       <ResourceMonitor metrics={metrics} />
@@ -238,6 +261,10 @@ export default function ModelsPage() {
           <Tab value="asr-streaming" label={MODEL_TYPE_LABEL['asr-streaming']} />
           <Tab value="asr-offline" label={MODEL_TYPE_LABEL['asr-offline']} />
           <Tab value="tts" label={MODEL_TYPE_LABEL.tts} />
+          <Tab
+            value="custom"
+            label={`自定义模型 (${models.filter((item) => item.origin === 'custom').length})`}
+          />
         </Tabs>
         <TextField
           size="small"
@@ -296,12 +323,37 @@ export default function ModelsPage() {
                     payload: target,
                   })
                 }
+                onEdit={(target) => {
+                  setEditing(target);
+                  setDialogOpen(true);
+                }}
+                onDelete={(target) =>
+                  setConfirm({
+                    action: 'delete-model',
+                    title: '删除自定义模型',
+                    content: `将删除「${target.name}」的模型配置，并同时删除已下载/上传的模型文件（不可恢复）。确认删除？`,
+                    confirmText: '删除',
+                    danger: true,
+                    payload: target,
+                  })
+                }
                 onDownloadFinished={handleDownloadFinished}
               />
             ))}
           </Box>
         </Box>
       ))}
+
+      <CustomModelDialog
+        open={dialogOpen}
+        model={editing}
+        onClose={() => setDialogOpen(false)}
+        onSaved={(saved) => {
+          setDialogOpen(false);
+          setNotice(`已保存自定义模型「${saved.name}」`);
+          void refresh();
+        }}
+      />
 
       <ConfirmDialog
         state={confirm}

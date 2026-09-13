@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from '@mui/material';
 
-export type DialogAction = 'stop' | 'restart' | 'redownload' | 'delete-key';
+export type DialogAction = 'stop' | 'restart' | 'redownload' | 'delete-key' | 'delete-model';
 
 export interface ConfirmState {
   action: DialogAction;

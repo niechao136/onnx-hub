@@ -63,6 +63,23 @@ class DownloadTask(SQLModel, table=True):
     finished_at: datetime | None = Field(default=None)
 
 
+class CustomModelRecord(SQLModel, table=True):
+    """用户自定义模型。
+
+    规格以 JSON 形式持久化，结构与 ``models.yaml`` 中的单个条目完全一致，
+    加载时由 ``registry`` 与预置模型合并，因此下载/启动/网关逻辑无需区分来源。
+    """
+
+    model_config = ConfigDict(protected_namespaces=())
+
+    __tablename__ = "custom_model"
+
+    model_id: str = Field(primary_key=True, max_length=128)
+    spec_json: str = Field(default="{}")
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 class ApiKey(SQLModel, table=True):
     """对外调用网关所用的 API Key。"""
 

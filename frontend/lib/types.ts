@@ -30,10 +30,35 @@ export interface ModelInfo {
 
   gateway_path: string;
   source_repo: string;
+  source_mirrors: string[];
   files: ModelFileInfo[];
   start_command: string;
   start_args: string[];
-  health_check: string;
+  start_cwd: 'model_dir' | 'backend_dir';
+  health_check: 'tcp' | 'http';
+  health_path: string;
+  origin: 'builtin' | 'custom';
+  downloadable: boolean;
+}
+
+/** 自定义模型的新增/编辑入参，结构与 models.yaml 单条定义一致 */
+export interface ModelSpecInput {
+  id: string;
+  name: string;
+  type: ModelType;
+  language?: string;
+  description?: string;
+  memory_mb?: number;
+  tags?: string[];
+  source?: { repo?: string; mirrors?: string[] };
+  files: { key: string; path: string }[];
+  start: {
+    command: string;
+    args?: string[];
+    cwd?: 'model_dir' | 'backend_dir';
+    health?: { kind: 'tcp' | 'http'; path?: string };
+    startup_grace?: number;
+  };
 }
 
 export interface DownloadProgressInfo {

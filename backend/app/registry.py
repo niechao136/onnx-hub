@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from functools import lru_cache
 from pathlib import Path
@@ -15,7 +16,9 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError
 
 from .config import BACKEND_DIR, settings
-from .errors import RegistryError
+from .errors import InvalidModelSpecError, RegistryError
+
+logger = logging.getLogger(__name__)
 
 ModelType = Literal["asr-streaming", "asr-offline", "tts"]
 
@@ -34,6 +37,7 @@ __all__ = [
     "get_registry",
     "list_specs",
     "get_spec",
+    "parse_spec",
     "model_dir_of",
     "render_context",
 ]
@@ -96,11 +100,18 @@ class ModelSpec(BaseModel):
     source: ModelSource = Field(default_factory=ModelSource)
     files: list[ModelFile] = Field(default_factory=list)
     start: StartSpec
+    #: builtin = models.yaml 预置；custom = 用户在界面上创建
+    origin: Literal["builtin", "custom"] = "builtin"
 
     # ---------------------------------------------------------------- 辅助
     @property
     def file_keys(self) -> set[str]:
         return {f.key for f in self.files}
+
+    @property
+    def downloadable(self) -> bool:
+        """是否配置了下载源（自定义模型可以只走手动上传）。"""
+        return bool(self.source.mirrors)
 
     @property
     def is_asr(self) -> bool:
@@ -131,45 +142,63 @@ class ModelSpec(BaseModel):
         return _fmt(self.start.command), [_fmt(a) for a in self.start.args]
 
 
+def _validate_one(spec: ModelSpec) -> None:
+    """校验单个模型定义（预置与自定义共用）。"""
+    if not spec.files:
+        raise RegistryError(f"模型 {spec.id} 未配置任何 files")
+
+    file_keys: set[str] = set()
+    for item in spec.files:
+        if item.key in file_keys:
+            raise RegistryError(f"模型 {spec.id} 的 files 中存在重复 key: {item.key}")
+        if item.key in RESERVED_PLACEHOLDERS:
+            raise RegistryError(
+                f"模型 {spec.id} 的 file key '{item.key}' 与保留占位符冲突，请改名"
+            )
+        file_keys.add(item.key)
+
+    # 预置模型必须配置下载源；自定义模型允许留空（改为手动上传文件）
+    if spec.origin == "builtin" and not spec.source.mirrors:
+        raise RegistryError(f"模型 {spec.id} 未配置 source.mirrors")
+
+    # 提前渲染一次，尽早发现模板里的占位符笔误
+    probe = {key: f"<{key}>" for key in file_keys}
+    spec.render(
+        {
+            "port": "0",
+            "model_dir": str(settings.model_dir / spec.id),
+            "data_dir": str(settings.data_dir),
+            "backend_dir": str(BACKEND_DIR),
+            **probe,
+        }
+    )
+
+
 def _validate(specs: list[ModelSpec]) -> None:
     seen: set[str] = set()
     for spec in specs:
         if spec.id in seen:
-            raise RegistryError(f"models.yaml 中存在重复的模型 id: {spec.id}")
+            raise RegistryError(f"模型目录中存在重复的模型 id: {spec.id}")
         seen.add(spec.id)
-
-        if not spec.files:
-            raise RegistryError(f"模型 {spec.id} 未配置任何 files")
-
-        file_keys: set[str] = set()
-        for item in spec.files:
-            if item.key in file_keys:
-                raise RegistryError(f"模型 {spec.id} 的 files 中存在重复 key: {item.key}")
-            if item.key in RESERVED_PLACEHOLDERS:
-                raise RegistryError(
-                    f"模型 {spec.id} 的 file key '{item.key}' 与保留占位符冲突，请改名"
-                )
-            file_keys.add(item.key)
-
-        if not spec.source.mirrors:
-            raise RegistryError(f"模型 {spec.id} 未配置 source.mirrors")
-
-        # 提前渲染一次，尽早发现模板里的占位符笔误
-        probe = {key: f"<{key}>" for key in file_keys}
-        spec.render(
-            {
-                "port": "0",
-                "model_dir": str(settings.model_dir / spec.id),
-                "data_dir": str(settings.data_dir),
-                "backend_dir": str(BACKEND_DIR),
-                **probe,
-            }
-        )
+        _validate_one(spec)
 
 
-def load_registry(path: Path | None = None) -> dict[str, ModelSpec]:
-    """从 YAML 文件加载模型目录。"""
-    config_path = Path(path or settings.models_config)
+def parse_spec(entry: dict, *, origin: Literal["builtin", "custom"] = "custom") -> ModelSpec:
+    """校验一份模型定义（dict），供自定义模型接口与 YAML 加载共用。"""
+    if not isinstance(entry, dict):
+        raise InvalidModelSpecError("模型定义必须是 JSON 对象")
+    try:
+        spec = ModelSpec.model_validate({**entry, "origin": origin})
+    except ValidationError as exc:
+        raise InvalidModelSpecError(f"模型定义不合法: {exc}") from exc
+    try:
+        _validate_one(spec)
+    except RegistryError as exc:
+        raise InvalidModelSpecError(str(exc)) from exc
+    return spec
+
+
+def _load_builtin(config_path: Path) -> dict[str, ModelSpec]:
     if not config_path.exists():
         raise RegistryError(f"模型目录配置文件不存在: {config_path}")
 
@@ -179,16 +208,44 @@ def load_registry(path: Path | None = None) -> dict[str, ModelSpec]:
         raise RegistryError(f"{config_path} 中未定义任何模型（models 列表为空）")
 
     specs: list[ModelSpec] = []
+    seen: set[str] = set()
     for index, entry in enumerate(entries):
         try:
-            specs.append(ModelSpec.model_validate(entry))
+            spec = ModelSpec.model_validate({**entry, "origin": "builtin"})
         except ValidationError as exc:
             raise RegistryError(
                 f"{config_path} 第 {index + 1} 个模型定义非法: {exc}"
             ) from exc
-
-    _validate(specs)
+        if spec.id in seen:
+            raise RegistryError(f"{config_path} 中存在重复的模型 id: {spec.id}")
+        seen.add(spec.id)
+        specs.append(spec)
     return {spec.id: spec for spec in specs}
+
+
+def _load_custom() -> dict[str, ModelSpec]:
+    """从数据库读取用户自定义模型（惰性导入，避免与 custom_models 形成循环依赖）。"""
+    try:
+        from .custom_models import load_specs_for_registry
+    except ImportError:  # pragma: no cover - 理论不会发生
+        return {}
+    return load_specs_for_registry()
+
+
+def load_registry(path: Path | None = None) -> dict[str, ModelSpec]:
+    """加载模型目录 = models.yaml 预置模型 + 用户自定义模型。"""
+    config_path = Path(path or settings.models_config)
+    specs = _load_builtin(config_path)
+
+    for model_id, spec in _load_custom().items():
+        if model_id in specs:
+            # 正常不会发生（创建时已拦截）；手工改库导致冲突时以预置模型为准
+            logger.warning("自定义模型 %s 与预置模型 id 冲突，已忽略该自定义模型", model_id)
+            continue
+        specs[model_id] = spec
+
+    _validate(list(specs.values()))
+    return specs
 
 
 @lru_cache(maxsize=1)

@@ -15,14 +15,16 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from typing import Any
 
 import httpx
 import psutil
 import websockets
-from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, Depends, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlmodel import Session
 
+from . import custom_models
 from .auth import (
     create_key,
     delete_key,
@@ -34,7 +36,7 @@ from .auth import (
 )
 from .config import settings
 from .db import get_session
-from .downloader import get_download_manager
+from .downloader import get_download_manager, validate_registry_downloads
 from .errors import (
     ModelNotFoundError,
     ModelNotRunningError,
@@ -90,13 +92,81 @@ def get_model(model_id: str) -> ModelInfo:
     return to_model_info(spec, get_process_manager().get_state(model_id))
 
 
-@mgmt_router.post("/registry/reload", summary="重新加载 models.yaml")
+@mgmt_router.post("/registry/reload", summary="重新加载 models.yaml 与自定义模型")
 def reload_registry() -> dict[str, object]:
-    from .downloader import validate_registry_downloads
-
     registry = get_registry(reload=True)
     validate_registry_downloads()
     return {"reloaded": len(registry), "models": sorted(registry)}
+
+
+# =============================================================================
+# 自定义模型：用户新增 / 修改 / 删除（预置模型不允许改动）
+# =============================================================================
+def _sync_registry() -> None:
+    """自定义模型变更后立即生效：刷新目录缓存并同步下载状态。"""
+    get_registry(reload=True)
+    validate_registry_downloads()
+
+
+def _model_info(model_id: str) -> ModelInfo:
+    return to_model_info(get_spec(model_id), get_process_manager().get_state(model_id))
+
+
+@mgmt_router.post("/models/custom", response_model=ModelInfo, summary="新增自定义模型")
+def create_custom_model_endpoint(payload: dict[str, Any] = Body(...)) -> ModelInfo:
+    """请求体结构与 ``models.yaml`` 中的单条模型定义一致（``origin`` 会被忽略）。
+
+    没有下载源时可以只声明 ``files``，再通过文件上传接口放文件。
+    """
+    spec = custom_models.create_custom_model(payload)
+    _sync_registry()
+    return _model_info(spec.id)
+
+
+@mgmt_router.put("/models/custom/{model_id}", response_model=ModelInfo, summary="更新自定义模型")
+def update_custom_model_endpoint(
+    model_id: str, payload: dict[str, Any] = Body(...)
+) -> ModelInfo:
+    spec = custom_models.update_custom_model(model_id, payload)
+    _sync_registry()
+    return _model_info(spec.id)
+
+
+@mgmt_router.delete("/models/custom/{model_id}", summary="删除自定义模型")
+async def delete_custom_model_endpoint(
+    model_id: str,
+    purge_files: bool = Query(default=False, description="是否同时删除已下载/上传的模型文件"),
+) -> dict[str, object]:
+    manager = get_process_manager()
+    if manager.port_of(model_id) is not None:
+        await manager.stop(model_id)
+    custom_models.delete_custom_model(model_id, purge_files=purge_files)
+    _sync_registry()
+    return {"deleted": model_id, "purged_files": purge_files}
+
+
+@mgmt_router.put("/models/{model_id}/files/{file_path:path}", summary="上传模型文件")
+async def upload_model_file_endpoint(
+    model_id: str, file_path: str, request: Request
+) -> dict[str, object]:
+    """以原始字节流写入模型目录（不经过 multipart，支持大文件）。
+
+    ``file_path`` 相对于模型目录，需与模型定义中 ``files[].path`` 一致，
+    例如 VITS 的 ``vits-aishell3.onnx``、``tokens.txt``。
+    """
+    try:
+        get_spec(model_id)
+    except KeyError as exc:
+        raise ModelNotFoundError(str(exc)) from exc
+
+    target, size = await custom_models.save_upload(model_id, file_path, request.stream())
+    validate_registry_downloads()
+    return {
+        "model_id": model_id,
+        "path": file_path,
+        "size_bytes": size,
+        "saved_to": str(target),
+    }
 
 
 # =============================================================================

@@ -29,6 +29,8 @@ interface Props {
   onStart: (model: ModelInfo) => void;
   onStop: (model: ModelInfo) => void;
   onRestart: (model: ModelInfo) => void;
+  onEdit: (model: ModelInfo) => void;
+  onDelete: (model: ModelInfo) => void;
   onDownloadFinished: (modelId: string) => void;
 }
 
@@ -41,6 +43,8 @@ export default function ModelCard({
   onStart,
   onStop,
   onRestart,
+  onEdit,
+  onDelete,
   onDownloadFinished,
 }: Props) {
   const fileCount = model.files.length;
@@ -100,12 +104,12 @@ export default function ModelCard({
           详情
         </Button>
 
-        {!model.downloaded && !downloading && (
+        {!model.downloaded && !downloading && model.downloadable && (
           <Button size="small" variant="contained" onClick={() => onDownload(model)} disabled={disabled}>
             下载
           </Button>
         )}
-        {model.downloaded && !downloading && (
+        {model.downloaded && !downloading && model.downloadable && (
           <Button size="small" onClick={() => onDownload(model, true)} disabled={disabled}>
             重新下载
           </Button>
@@ -114,6 +118,26 @@ export default function ModelCard({
           <Button size="small" color="warning" onClick={() => onCancelDownload(model)}>
             取消下载
           </Button>
+        )}
+        {!model.downloaded && !downloading && !model.downloadable && (
+          <Button
+            size="small"
+            variant="contained"
+            component={Link}
+            href={`/models/${model.id}`}
+          >
+            上传文件
+          </Button>
+        )}
+        {model.origin === 'custom' && (
+          <>
+            <Button size="small" onClick={() => onEdit(model)} disabled={busy}>
+              编辑
+            </Button>
+            <Button size="small" color="error" onClick={() => onDelete(model)} disabled={busy}>
+              删除
+            </Button>
+          </>
         )}
 
         {!model.running && (

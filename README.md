@@ -34,6 +34,7 @@ onnx-hub/
 │   │   ├── models.py            # SQLModel：ModelState / DownloadTask / ApiKey
 │   │   ├── registry.py          # models.yaml 解析与命令模板渲染
 │   │   ├── downloader.py        # 下载任务管理（进度 / 重试 / 多镜像）
+│   │   ├── custom_models.py     # 自定义模型 CRUD + 模型文件上传
 │   │   ├── process_manager.py   # 端口池 + 子进程生命周期 + 健康检查
 │   │   ├── gateway.py           # 管理接口 + WS/HTTP 网关转发
 │   │   ├── auth.py              # API Key 生成与校验
@@ -189,7 +190,58 @@ npm run dev                    # http://localhost:3000
 | `GET` | `/api/models/{model_id}/status` | 查询状态 |
 | `GET` | `/api/models/{model_id}/logs?lines=200` | 子进程日志尾部 |
 
-### 4.4 资源监控与 API Key
+### 4.4 自定义模型（用户创建）
+
+预置模型来自 `models.yaml`（只读）；除此之外用户可以在界面上创建自己的模型，
+定义会持久化到 SQLite，并与预置模型合并成同一份目录（下载/启动/网关逻辑完全一致）。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/api/models/custom` | 新增自定义模型（请求体结构同 `models.yaml` 单条定义） |
+| `PUT` | `/api/models/custom/{model_id}` | 更新自定义模型（预置模型返回 400） |
+| `DELETE` | `/api/models/custom/{model_id}?purge_files=true` | 删除自定义模型，可选同时删除模型文件 |
+| `PUT` | `/api/models/{model_id}/files/{file_path}` | 上传模型文件（原始字节流，`file_path` 相对模型目录） |
+
+```bash
+# 1) 无下载源、自带 ONNX 文件的模型
+curl -X POST http://127.0.0.1:10100/api/models/custom \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "id": "my-vits",
+    "name": "我的 VITS 模型",
+    "type": "tts",
+    "memory_mb": 600,
+    "source": { "repo": "", "mirrors": [] },
+    "files": [
+      { "key": "model",   "path": "model.onnx" },
+      { "key": "tokens",  "path": "tokens.txt" },
+      { "key": "lexicon", "path": "lexicon.txt" }
+    ],
+    "start": {
+      "command": "{python}",
+      "args": ["-m", "app.runners.tts_server", "--port={port}",
+               "--vits-model={model}", "--tokens={tokens}", "--lexicon={lexicon}"],
+      "cwd": "backend_dir",
+      "health": { "kind": "http", "path": "/health" }
+    }
+  }'
+
+# 2) 上传文件（可反复调用；也支持在界面上「文件清单」页逐个上传）
+curl -X PUT --data-binary @model.onnx \
+  http://127.0.0.1:10100/api/models/my-vits/files/model.onnx
+
+# 3) 启动并调用（与预置模型同一套接口）
+curl -X POST http://127.0.0.1:10100/api/models/my-vits/start
+```
+
+约束与说明：
+
+- 模型 id 只允许字母、数字、`.`、`_`、`-`，且不能与预置模型重名
+- 启动参数占位符支持 `{port}` `{model_dir}` `{data_dir}` `{backend_dir}` `{python}` 与 `files[].key`
+- 上传路径会被限制在该模型目录内（拒绝 `..` 与绝对路径）
+- 预置模型不可通过接口修改/删除；如需调整请改 `models.yaml` 后 `POST /api/registry/reload`
+
+### 4.5 资源监控与 API Key
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -199,7 +251,7 @@ npm run dev                    # http://localhost:3000
 | `GET` | `/api/keys` | Key 列表（只返回前缀） |
 | `DELETE` | `/api/keys/{key_id}` | 删除 Key |
 
-### 4.5 对外网关（稳定路径）
+### 4.6 对外网关（稳定路径）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -262,10 +314,16 @@ curl -N http://127.0.0.1:8000/api/models/vits-zh-aishell3/download/progress/stre
 
 ---
 
-## 六、新增模型（只改 YAML，不改代码）
+## 六、新增模型
 
-编辑 `backend/app/config/models.yaml`，照抄一条并替换文件清单与启动参数，然后调用
-`POST /api/registry/reload`（或重启后端）即可。
+有两种方式：
+
+| 方式 | 适用场景 | 操作 |
+|---|---|---|
+| **界面新增（自定义模型）** | 临时试用、自带 ONNX 文件、不想改代码 | 模型广场 → 右上角「新增模型」，按表单填写；没有下载源的模型保存后到详情页「文件清单」上传文件 |
+| **写进 `models.yaml`（预置模型）** | 团队共享、需要随代码版本管理 | 编辑下面的 YAML，再 `POST /api/registry/reload` |
+
+下面以 YAML 方式说明字段含义（界面上新增的自定义模型字段完全一致）。
 
 ```yaml
   - id: my-tts-model                 # 唯一 id，也是 URL 中的 {model_id}
@@ -306,7 +364,8 @@ curl -N http://127.0.0.1:8000/api/models/vits-zh-aishell3/download/progress/stre
 ## 七、测试
 
 ```bash
-# 后端（41 个用例，覆盖仓库解析、下载进度/重试/多镜像、端口池、启动停止、自动重启、并发限制、API/WS）
+# 后端（50 个用例：仓库解析、下载进度/重试/多镜像、端口池、启动停止、自动重启、并发限制、
+#        自定义模型 CRUD、文件上传与路径穿越防护、API/WS）
 uv run pytest -q
 
 # 前端类型检查 + 构建

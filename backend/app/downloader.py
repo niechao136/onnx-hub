@@ -322,7 +322,9 @@ class DownloadManager:
         """带重试与多镜像 fallback 的单文件下载。"""
         urls = job.spec.source.urls_for(file_path)
         if not urls:
-            raise DownloadError(f"模型 {job.model_id} 未配置可用的下载源")
+            raise DownloadError(
+                f"模型 {job.model_id} 未配置下载源，请在模型详情页上传模型文件"
+            )
 
         attempts = max(self.settings.download_retries, len(urls))
         last_error: Exception | None = None

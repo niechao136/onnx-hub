@@ -40,10 +40,17 @@ class ModelInfo(BaseModel):
 
     gateway_path: str = ""
     source_repo: str = ""
+    source_mirrors: list[str] = Field(default_factory=list)
     files: list[ModelFileInfo] = Field(default_factory=list)
     start_command: str = ""
     start_args: list[str] = Field(default_factory=list)
+    start_cwd: str = "model_dir"
     health_check: str = "tcp"
+    health_path: str = "/health"
+    #: builtin = models.yaml 预置；custom = 用户创建
+    origin: str = "builtin"
+    #: 是否配置了下载源（false 表示需要手动上传文件）
+    downloadable: bool = True
 
 
 def to_model_info(spec: ModelSpec, state: ModelState) -> ModelInfo:
@@ -80,10 +87,15 @@ def to_model_info(spec: ModelSpec, state: ModelState) -> ModelInfo:
         last_error=state.last_error,
         gateway_path=spec.gateway_path(),
         source_repo=spec.source.repo,
+        source_mirrors=list(spec.source.mirrors),
         files=files,
         start_command=spec.start.command,
         start_args=list(spec.start.args),
+        start_cwd=spec.start.cwd,
         health_check=spec.start.health.kind,
+        health_path=spec.start.health.path,
+        origin=spec.origin,
+        downloadable=spec.downloadable,
     )
 
 

@@ -4,6 +4,7 @@ import type {
   DownloadProgressInfo,
   ModelInfo,
   ModelLogs,
+  ModelSpecInput,
   ResourceMetrics,
 } from './types';
 
@@ -91,6 +92,56 @@ export const api = {
     request<ModelLogs>(`/api/models/${encode(modelId)}/logs?lines=${lines}`),
   reloadRegistry: () =>
     request<{ reloaded: number; models: string[] }>('/api/registry/reload', { method: 'POST' }),
+
+  // ---- 自定义模型 ----
+  createCustomModel: (spec: ModelSpecInput) =>
+    request<ModelInfo>('/api/models/custom', { method: 'POST', body: JSON.stringify(spec) }),
+
+  updateCustomModel: (modelId: string, spec: ModelSpecInput) =>
+    request<ModelInfo>(`/api/models/custom/${encode(modelId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(spec),
+    }),
+
+  deleteCustomModel: (modelId: string, purgeFiles = false) =>
+    request<{ deleted: string; purged_files: boolean }>(
+      `/api/models/custom/${encode(modelId)}?purge_files=${purgeFiles}`,
+      { method: 'DELETE' },
+    ),
+
+  /** 以原始字节流上传模型文件（不经过 multipart，大文件也不占内存） */
+  uploadModelFile: async (
+    modelId: string,
+    filePath: string,
+    file: File,
+  ): Promise<{ size_bytes: number; saved_to: string }> => {
+    const encodedPath = filePath
+      .split('/')
+      .map((segment) => encode(segment))
+      .join('/');
+
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE}/api/models/${encode(modelId)}/files/${encodedPath}`, {
+        method: 'PUT',
+        body: file,
+        headers: { 'Content-Type': 'application/octet-stream' },
+      });
+    } catch {
+      throw new ApiError('上传失败：无法连接后端服务', 0);
+    }
+
+    const text = await response.text();
+    const payload = text ? safeParse(text) : null;
+    if (!response.ok) {
+      throw new ApiError(
+        (payload as { detail?: string } | null)?.detail ?? `上传失败（HTTP ${response.status}）`,
+        response.status,
+        (payload as { code?: string } | null)?.code,
+      );
+    }
+    return payload as { size_bytes: number; saved_to: string };
+  },
 
   // ---- 监控 ----
   getMetrics: () => request<ResourceMetrics>('/api/system/metrics'),

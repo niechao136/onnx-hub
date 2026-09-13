@@ -71,3 +71,22 @@ class StartError(HubError):
 class AuthError(HubError):
     status_code = 401
     code = "unauthorized"
+
+
+class InvalidModelSpecError(HubError):
+    """用户提交的模型定义不合法。"""
+
+    status_code = 400
+    code = "invalid_model_spec"
+
+
+class CustomModelExistsError(HubError):
+    status_code = 409
+    code = "custom_model_exists"
+
+
+class BuiltinModelProtectedError(HubError):
+    """预置模型（models.yaml）不允许通过接口修改/删除。"""
+
+    status_code = 400
+    code = "builtin_model_protected"

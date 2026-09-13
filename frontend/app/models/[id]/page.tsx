@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import {
   Alert,
   Box,
@@ -25,11 +25,15 @@ import {
   Typography,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import DeleteIcon from '@mui/icons-material/DeleteOutlined';
+import EditIcon from '@mui/icons-material/Edit';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import StopIcon from '@mui/icons-material/Stop';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import CustomModelDialog from '@/components/CustomModelDialog';
 import DownloadProgress from '@/components/DownloadProgress';
+import FileUploadButton from '@/components/FileUploadButton';
 import { ModelChips } from '@/components/StatusChip';
 import { api, websocketUrl } from '@/lib/api';
 import { formatBytes, formatMegabytes } from '@/lib/format';
@@ -38,6 +42,7 @@ import { MODEL_TYPE_LABEL } from '@/lib/types';
 
 export default function ModelDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const modelId = useMemo(() => decodeURIComponent(params?.id ?? ''), [params]);
 
   const [model, setModel] = useState<ModelInfo | null>(null);
@@ -50,6 +55,8 @@ export default function ModelDetailPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmStop, setConfirmStop] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [wsState, setWsState] = useState<'idle' | 'connecting' | 'open' | 'error'>('idle');
   const [wsMessage, setWsMessage] = useState('');
 
@@ -113,6 +120,19 @@ export default function ModelDetailPage() {
     } finally {
       setBusy(false);
       setConfirmStop(false);
+    }
+  };
+
+  const handleDeleteModel = async () => {
+    if (!model) return;
+    setBusy(true);
+    try {
+      await api.deleteCustomModel(model.id, true);
+      router.push('/models');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+      setConfirmDelete(false);
     }
   };
 
@@ -207,6 +227,20 @@ export default function ModelDetailPage() {
           <Button startIcon={<RefreshIcon />} onClick={() => void loadLogs()}>
             刷新日志
           </Button>
+          {model.origin === 'custom' && (
+            <>
+              <Button startIcon={<EditIcon />} onClick={() => setDialogOpen(true)}>
+                编辑
+              </Button>
+              <Button
+                color="error"
+                startIcon={<DeleteIcon />}
+                onClick={() => setConfirmDelete(true)}
+              >
+                删除
+              </Button>
+            </>
+          )}
         </Box>
       </Stack>
 
@@ -226,7 +260,14 @@ export default function ModelDetailPage() {
         </Alert>
       )}
 
-      {!model.downloaded && (
+      {!model.downloaded && !model.downloadable && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          该模型没有配置下载源，请到「文件清单」标签页逐个上传模型文件（共 {model.files.length} 个）。
+          上传齐全后即可启动。
+        </Alert>
+      )}
+
+      {!model.downloaded && model.downloadable && (
         <Card variant="outlined" sx={{ mb: 3 }}>
           <CardContent>
             <Typography variant="h6" gutterBottom>
@@ -282,6 +323,14 @@ export default function ModelDetailPage() {
               <InfoItem label="健康检查" value={model.health_check === 'http' ? 'HTTP 探活' : 'TCP 探活'} />
               <InfoItem label="上游仓库" value={model.source_repo || '-'} />
               <InfoItem
+                label="模型来源"
+                value={
+                  model.origin === 'custom'
+                    ? `自定义（用户创建）· 下载源 ${model.source_mirrors.length} 个`
+                    : '预置（models.yaml）'
+                }
+              />
+              <InfoItem
                 label="运行状态"
                 value={
                   model.running
@@ -325,6 +374,10 @@ export default function ModelDetailPage() {
       {tab === 1 && (
         <Card variant="outlined">
           <CardContent>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              文件路径相对模型目录；缺失的文件可直接在这里上传（无论是预置模型还是自定义模型），
+              上传后会在下次刷新时被识别为「已就绪」。
+            </Typography>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -332,6 +385,7 @@ export default function ModelDetailPage() {
                   <TableCell>文件</TableCell>
                   <TableCell>状态</TableCell>
                   <TableCell align="right">大小</TableCell>
+                  <TableCell align="right">操作</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -350,6 +404,19 @@ export default function ModelDetailPage() {
                       />
                     </TableCell>
                     <TableCell align="right">{formatBytes(file.size_bytes)}</TableCell>
+                    <TableCell align="right">
+                      <FileUploadButton
+                        modelId={model.id}
+                        filePath={file.path}
+                        label={file.exists ? '覆盖' : '上传'}
+                        variant={file.exists ? 'text' : 'outlined'}
+                        onUploaded={() => {
+                          setNotice(`已上传 ${file.path}`);
+                          void loadModel();
+                        }}
+                        onError={setError}
+                      />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -480,6 +547,34 @@ export default function ModelDetailPage() {
         busy={busy}
         onCancel={() => setConfirmStop(false)}
         onConfirm={() => void runAction('stop')}
+      />
+
+      <CustomModelDialog
+        open={dialogOpen}
+        model={model}
+        onClose={() => setDialogOpen(false)}
+        onSaved={(saved) => {
+          setDialogOpen(false);
+          setNotice(`已保存「${saved.name}」`);
+          void loadModel();
+        }}
+      />
+
+      <ConfirmDialog
+        state={
+          confirmDelete
+            ? {
+                action: 'delete-model',
+                title: '删除自定义模型',
+                content: `将删除「${model.name}」的模型配置，并同时删除已下载/上传的模型文件（不可恢复）。确认删除？`,
+                confirmText: '删除',
+                danger: true,
+              }
+            : null
+        }
+        busy={busy}
+        onCancel={() => setConfirmDelete(false)}
+        onConfirm={() => void handleDeleteModel()}
       />
     </Box>
   );

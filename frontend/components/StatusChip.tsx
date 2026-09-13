@@ -56,6 +56,9 @@ export function ModelChips({ model }: { model: ModelInfo }) {
     <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
       <DownloadChip model={model} />
       <StatusChip status={model.status} />
+      {model.origin === 'custom' && (
+        <Chip size="small" color="secondary" variant="outlined" label="自定义" />
+      )}
     </Stack>
   );
 }
