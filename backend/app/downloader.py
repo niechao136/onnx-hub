@@ -12,7 +12,7 @@ import asyncio
 import contextlib
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -117,7 +117,7 @@ class DownloadManager:
     """下载任务管理器。"""
 
     def __init__(self, config: Settings | None = None) -> None:
-        self.settings = config or settings
+        self.settings: Settings = config or settings
         self._jobs: dict[str, _Job] = {}
 
     # ------------------------------------------------------------- 查询
@@ -138,12 +138,11 @@ class DownloadManager:
 
         spec = get_spec(model_id)
         with session_scope() as session:
-            record = session.exec(
-                select(DownloadTask)
-                .where(DownloadTask.model_id == model_id)
-                .order_by(DownloadTask.id.desc())  # type: ignore[union-attr]
-                .limit(1)
-            ).first()
+            records = session.exec(
+                select(DownloadTask).where(DownloadTask.model_id == model_id)
+            ).all()
+            # 取 id 最大的一条（即最近一次下载记录）
+            record = max(records, key=lambda r: r.id or 0) if records else None
 
         if record is None:
             return DownloadProgress(
@@ -220,7 +219,7 @@ class DownloadManager:
                 job.cancel_event.set()
         runners = [j.runner for j in self._jobs.values() if j.runner is not None]
         for runner in runners:
-            runner.cancel()
+            _ = runner.cancel()
         for runner in runners:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await runner
@@ -342,7 +341,9 @@ class DownloadManager:
                 last_error = exc
                 job.error = f"{url} -> {exc}"
                 if attempt < attempts - 1:
-                    delay = min(self.settings.download_backoff * (2**attempt), 30.0)
+                    retry_base: float = self.settings.download_backoff
+                    product: float = retry_base * (2**attempt)  # pyright: ignore[reportAny]
+                    delay = min(product, 30.0)
                     await asyncio.sleep(delay)
 
         detail = str(last_error)
@@ -372,7 +373,7 @@ class DownloadManager:
                             raise asyncio.CancelledError
                         if not chunk:
                             continue
-                        fh.write(chunk)
+                        _ = fh.write(chunk)
                         job.downloaded_bytes += len(chunk)
         except BaseException:
             with contextlib.suppress(OSError):
