@@ -36,6 +36,7 @@ import DownloadProgress from '@/components/DownloadProgress';
 import FileUploadButton from '@/components/FileUploadButton';
 import { ModelChips } from '@/components/StatusChip';
 import { api, websocketUrl } from '@/lib/api';
+import { matchLaunchPreset } from '@/lib/launch-presets';
 import { formatBytes, formatMegabytes } from '@/lib/format';
 import type { ModelInfo } from '@/lib/types';
 import { MODEL_TYPE_LABEL } from '@/lib/types';
@@ -184,6 +185,7 @@ export default function ModelDetailPage() {
   }
 
   const isTts = model.type === 'tts';
+  const launchPreset = matchLaunchPreset(model.start_command, model.start_args);
   const wsUrl = websocketUrl(model.gateway_path);
   const curlSample = isTts
     ? `curl -X POST "${typeof window === 'undefined' ? '' : window.location.origin}/api/tts/${model.id}" \\\n  -H "X-API-Key: <你的 API Key>" \\\n  -H "Content-Type: application/json" \\\n  -d '{"text":"你好，世界","speaker_id":0,"speed":1.0}' \\\n  --output out.wav`
@@ -343,9 +345,15 @@ export default function ModelDetailPage() {
             </Box>
 
             <Divider sx={{ my: 2 }} />
-            <Typography variant="subtitle2" gutterBottom>
-              启动命令模板
-            </Typography>
+            <Stack direction="row" spacing={1} sx={{ mb: 1, alignItems: 'center' }}>
+              <Typography variant="subtitle2">启动命令模板</Typography>
+              <Chip
+                size="small"
+                variant="outlined"
+                color={launchPreset ? 'info' : 'default'}
+                label={launchPreset ? `预设：${launchPreset.label}` : '自定义启动脚本'}
+              />
+            </Stack>
             <Box
               component="pre"
               sx={{

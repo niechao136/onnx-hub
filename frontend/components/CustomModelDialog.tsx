@@ -19,8 +19,16 @@ import {
   Typography,
 } from '@mui/material';
 import { api } from '@/lib/api';
+import {
+  LAUNCH_PRESETS,
+  filesToText,
+  matchLaunchPreset,
+  type LaunchPreset,
+} from '@/lib/launch-presets';
 import type { ModelInfo, ModelSpecInput, ModelType } from '@/lib/types';
 import { MODEL_TYPE_LABEL } from '@/lib/types';
+
+const DEFAULT_PRESET: LaunchPreset = LAUNCH_PRESETS[0];
 
 interface Props {
   open: boolean;
@@ -49,6 +57,7 @@ interface FormState {
   grace: string;
 }
 
+/** 新增时的默认表单：直接套用第一个预设（流式 ASR），减少手填成本 */
 const EMPTY: FormState = {
   id: '',
   name: '',
@@ -59,12 +68,12 @@ const EMPTY: FormState = {
   tags: '',
   repo: '',
   mirrors: '',
-  files: 'encoder=encoder.onnx\ntokens=tokens.txt',
-  command: 'sherpa-onnx-online-websocket-server',
-  args: '--port={port}\n--tokens={tokens}',
-  cwd: 'model_dir',
-  healthKind: 'tcp',
-  healthPath: '/health',
+  files: filesToText(DEFAULT_PRESET.files),
+  command: DEFAULT_PRESET.command,
+  args: DEFAULT_PRESET.args.join('\n'),
+  cwd: DEFAULT_PRESET.cwd,
+  healthKind: DEFAULT_PRESET.health.kind,
+  healthPath: DEFAULT_PRESET.health.path,
   grace: '1',
 };
 
@@ -110,6 +119,7 @@ function parseFiles(value: string): { key: string; path: string }[] {
 
 export default function CustomModelDialog({ open, model, onClose, onSaved }: Props) {
   const [form, setForm] = useState<FormState>(EMPTY);
+  const [presetId, setPresetId] = useState<string>(DEFAULT_PRESET.id);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -117,7 +127,30 @@ export default function CustomModelDialog({ open, model, onClose, onSaved }: Pro
     if (!open) return;
     setError(null);
     setForm(model ? toForm(model) : EMPTY);
+    setPresetId(
+      model
+        ? matchLaunchPreset(model.start_command, model.start_args)?.id ?? ''
+        : DEFAULT_PRESET.id,
+    );
   }, [open, model]);
+
+  const activePreset = LAUNCH_PRESETS.find((preset) => preset.id === presetId) ?? null;
+
+  /** 套用预设：覆盖命令/参数/目录/探活；文件清单为空时才套用预设骨架 */
+  const applyPreset = (nextId: string) => {
+    setPresetId(nextId);
+    const preset = LAUNCH_PRESETS.find((item) => item.id === nextId);
+    if (!preset) return;
+    setForm((prev) => ({
+      ...prev,
+      command: preset.command,
+      args: preset.args.join('\n'),
+      cwd: preset.cwd,
+      healthKind: preset.health.kind,
+      healthPath: preset.health.path,
+      files: prev.files.trim() ? prev.files : filesToText(preset.files),
+    }));
+  };
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -318,10 +351,35 @@ export default function CustomModelDialog({ open, model, onClose, onSaved }: Pro
           启动方式
         </Typography>
 
+        <FormControl fullWidth sx={{ mt: 1 }}>
+          <InputLabel>预设启动脚本</InputLabel>
+          <Select
+            label="预设启动脚本"
+            value={presetId}
+            onChange={(event) => applyPreset(String(event.target.value))}
+          >
+            <MenuItem value="">自定义（手动填写命令与参数）</MenuItem>
+            {LAUNCH_PRESETS.map((preset) => (
+              <MenuItem key={preset.id} value={preset.id}>
+                {preset.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: 'block', mt: 0.5, mb: 1 }}
+        >
+          {activePreset
+            ? activePreset.description
+            : '选择预设会自动填充命令、参数、工作目录与探活方式；也可以在下方案手动修改。'}
+        </Typography>
+
         <TextField
           fullWidth
           required
-          sx={{ mt: 2 }}
+          sx={{ mt: 1 }}
           label="启动命令"
           helperText="可执行文件名或绝对路径；{python} 表示当前 Python 解释器"
           value={form.command}
