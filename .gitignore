@@ -18,6 +18,7 @@ frontend/.next/
 frontend/out/
 frontend/next-env.d.ts
 frontend/.env.local
+*.tsbuildinfo
 
 # IDE
 .vscode/
